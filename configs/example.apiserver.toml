@@ -1,0 +1,4 @@
+bind_addr=":8080"
+log_level="debug"
+session_key="secret"
+database_url="<user>:<password>@tcp(<host>)/<dbname>"
