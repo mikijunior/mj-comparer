@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"encoding/json"
+	"mjcomparer/internal/app/diffimage"
 	"mjcomparer/internal/app/store"
 	"net/http"
 
@@ -29,7 +30,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) configureRouter() {
-	// TODO: add routes for the API
+	s.router.HandleFunc("/compare", s.authMiddleware(s.handleCompare())).Methods("POST")
 }
 
 func (s *server) authMiddleware(next http.Handler) http.HandlerFunc {
@@ -55,5 +56,21 @@ func (s *server) respond(w http.ResponseWriter, r *http.Request, code int, data 
 	w.WriteHeader(code)
 	if data != nil {
 		json.NewEncoder(w).Encode(data)
+	}
+}
+
+func (s *server) handleCompare() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseForm()
+		if err != nil {
+			s.error(w, r, 500, err)
+			return
+		}
+		src := r.Form.Get("src")
+		dst := r.Form.Get("dst")
+
+		result, err := diffimage.CompareImagesByUrls(src, dst)
+
+		s.respond(w, r, 200, result)
 	}
 }
