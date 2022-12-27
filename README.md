@@ -6,7 +6,10 @@ The project is helpful for comare images.
 
 ## How to run the project
 - Create new config file by example in <project_path>/configs and fill it for your configurations.
-- Run migration with go-migrate. Example: `migrate -path ./migrations/ -database "mysql://<user>:<password>@tcp(<DB_URL>)/<DB_NAME>" -verbose up`
+- Run migration with go-migrate: `make migrate-up u=<db_username> p=<db_password> host=<db_host> name=<db_name>`
+- Run the app: `make run`
+- Build the app: `make build`
+
 ### Request
 Header:
 ```JSON
