@@ -1,34 +1,40 @@
 # mj-comparer
-The project is helpful for comare images.
+
+The project is helpful for comparing images.
+
 ## Algorithms
-1. Compare by pixels. Algorithm will be used for images with the same extensions. Here we would be able to compare every pixels of images to check their color codes.
-2. Compare by Euclidean distance. Algorithm will be used for images with different extensions. Images are resized in a special way to squares of fixed size called "icons". Euclidean distance between the icons is used to give the similarity verdict. Also image proportions are used to avoid matching images of distinct shape. Read more:  https://vitali-fedulov.github.io/similar.pictures/algorithm-for-perceptual-image-comparison.html
+
+1. **Structural Similarity Index (SSI):** The SSI algorithm is implemented to provide accurate image comparisons. It's a perception-based model that considers various features of images, such as structural information, luminance, and contrast.
+
+    Read more: [Structural Similarity Index](https://vitali-fedulov.github.io/similar.pictures/algorithm-for-perceptual-image-comparison.html)
 
 ## How to run the project
-- Create new config file by example in <project_path>/configs and fill it for your configurations.
+
+- Create a new config file by following the example in `<project_path>/configs` and fill it with your configurations.
 - Run migration with go-migrate: `make migrate-up u=<db_username> p=<db_password> host=<db_host> name=<db_name>`
 - Run the app: `make run`
 - Build the app: `make build`
 
 ### Request
+
 Header:
-```JSON
+```json
 {
   "Api-key": "Key from db"
 }
 ```
 Body:
-```JSON
+```json
 {
   "src": "Link to image",
   "dst": "Link to image",
 }
 ```
-### Response
-```JSON
+Response: 
+```json
 {
     "Is_same": true,
-    "Percent": 0,
-    "Algorithm": "Euclidean distance / Pixel compare"
+    "Percent": 97.34,
+    "Algorithm": "Structural Similarity Index"
 }
 ```
