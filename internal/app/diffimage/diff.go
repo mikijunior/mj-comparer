@@ -1,81 +1,66 @@
 package diffimage
 
 import (
+	"bytes"
 	"errors"
 	"image"
-	"image/color"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io/ioutil"
+	"math"
 	"mjcomparer/internal/app/response"
-	"mjcomparer/internal/app/store"
 	"net/http"
-
-	"github.com/vitali-fedulov/images4"
-	_ "golang.org/x/image/webp"
 )
 
+// CompareImagesByUrls compares two images given their URLs and returns a comparison result.
 func CompareImagesByUrls(src, dst string) (response.CompareResponse, error) {
 	var result response.CompareResponse
-	srcExt, err := GetImageExt(src)
+
+	// Use SSI for Euclidean distance
+	ssiPercent, err := CompareImagesBySSI(src, dst)
 	if err != nil {
 		return result, err
 	}
-
-	dstExt, err := GetImageExt(dst)
-	if err != nil {
-		return result, err
-	}
-
-	if srcExt == dstExt {
-		percent, err := CompareImageUrls(src, dst)
-		if err != nil {
-			return result, err
-		}
-
-		result.Is_same = percent < 10.00
-		result.Percent = percent
-		result.Algorithm = "Pixel compare"
-	} else {
-		isSimilar, err := CompareImagesED(src, dst)
-		if err != nil {
-			return result, err
-		}
-		result.Is_same = isSimilar
-		result.Percent = 0.00
-		result.Algorithm = "Euclidean distance"
-	}
+	result.Is_same = math.Round(ssiPercent) > 95
+	result.Percent = math.Round(ssiPercent*100) / 100
+	result.Algorithm = "Structural Similarity Index"
 
 	return result, nil
 }
 
+// CompareImagesBySSI compares two images using Structural Similarity Index.
+func CompareImagesBySSI(src, dst string) (float64, error) {
+	img1, err := GetImage(src)
+	if err != nil {
+		return 0, err
+	}
+	img2, err := GetImage(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	return calculateSSI(img1, img2), nil
+}
+
+// GetImageExt retrieves the image extension from a given URL.
 func GetImageExt(url string) (string, error) {
 	response, err := http.Get(url)
 	if err != nil {
 		return "", err
 	}
+	defer response.Body.Close()
+
 	buff := make([]byte, 512)
 	_, err = response.Body.Read(buff)
-
 	if err != nil {
-		return "", errors.New("Can't load a content of url")
+		return "", errors.New("can't load the content of URL")
 	}
 
 	return http.DetectContentType(buff), nil
 }
 
-func CompareImageUrls(src, dst string) (percent float64, err error) {
-	first, err := GetImage(src)
-	if err != nil {
-		return 0, err
-	}
-	second, err := GetImage(dst)
-	if err != nil {
-		return 0, err
-	}
-	return CompareImagesByPixels(first, second)
-}
-
+// GetImage retrieves an image from a given URL.
 func GetImage(url string) (image.Image, error) {
 	response, err := http.Get(url)
 	if err != nil {
@@ -83,64 +68,94 @@ func GetImage(url string) (image.Image, error) {
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode != 200 {
-		return nil, errors.New("Can't load a content of url: " + url)
+	if response.StatusCode != http.StatusOK {
+		return nil, errors.New("can't load the content of URL: " + url)
 	}
 
-	img, _, err := image.Decode(response.Body)
+	// Read the entire response body into a buffer
+	bodyBytes, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, errors.New("error reading the response body: " + err.Error())
+	}
 
-	return img, err
+	// Create a new reader from the buffer to decode the image
+	imgReader := bytes.NewReader(bodyBytes)
+
+	// Decode the image
+	img, _, err := image.Decode(imgReader)
+	if err != nil {
+		return nil, errors.New("Error decoding image URL \"" + url + "\". Error: " + err.Error())
+	}
+
+	return img, nil
 }
 
-func CompareImagesByPixels(src, dst image.Image) (percent float64, err error) {
-	srcBounds := src.Bounds()
-	dstBounds := dst.Bounds()
-	if !boundsMatch(srcBounds, dstBounds) {
-		return 0.0, store.ErrImagesWithDifferentSize
-	}
 
-	diffImage := image.NewRGBA(image.Rect(0, 0, srcBounds.Max.X, srcBounds.Max.Y))
+//Structural Similarity Index
+func calculateSSI(img1, img2 image.Image) float64 {
+	c1 := 0.0001 // Constant to prevent division by zero
 
-	var differentPixels float64
-	for y := srcBounds.Min.Y; y < srcBounds.Max.Y; y++ {
-		for x := srcBounds.Min.X; x < srcBounds.Max.X; x++ {
-			r, g, b, _ := dst.At(x, y).RGBA()
-			diffImage.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), 64})
+	muX := calculateMean(img1)
+	muY := calculateMean(img2)
 
-			if !isEqualColor(src.At(x, y), dst.At(x, y)) {
-				differentPixels++
-			}
+	sigmaX := calculateStdDev(img1, muX)
+	sigmaY := calculateStdDev(img2, muY)
+	sigmaXY := calculateCrossCovariance(img1, img2, muX, muY)
+
+	l := (2*muX*muY + c1) / (muX*muX + muY*muY + c1)
+	c := (2*sigmaX*sigmaY + c1) / (sigmaX*sigmaX + sigmaY*sigmaY + c1)
+	s := (sigmaXY + c1/2) / (sigmaX*sigmaY + c1/2)
+
+	ssi := l * c * s
+
+	// Map SSI to the range [0%, 100%]
+	ssiPercentage := (ssi + 1) / 2 * 100
+
+	return ssiPercentage
+}
+
+func calculateMean(img image.Image) float64 {
+	bounds := img.Bounds()
+	total := 0.0
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			total += float64(r + g + b)
 		}
 	}
 
-	return (differentPixels / float64(srcBounds.Max.X*srcBounds.Max.Y) * 100), nil
+	total /= 3 * float64(bounds.Max.X*bounds.Max.Y)
+	return total
 }
 
-func isEqualColor(a, b color.Color) bool {
-	r1, g1, b1, a1 := a.RGBA()
-	r2, g2, b2, a2 := b.RGBA()
+func calculateStdDev(img image.Image, mean float64) float64 {
+	bounds := img.Bounds()
+	total := 0.0
 
-	return r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
-}
-
-func boundsMatch(a, b image.Rectangle) bool {
-	return a.Min.X == b.Min.X && a.Min.Y == b.Min.Y && a.Max.X == b.Max.X && a.Max.Y == b.Max.Y
-}
-
-// Euclidean distance algorithm. Read more: https://vitali-fedulov.github.io/similar.pictures/algorithm-for-perceptual-image-comparison.html
-func CompareImagesED(src, dst string) (bool, error) {
-	img1, err := GetImage(src)
-	if err != nil {
-		return false, err
-	}
-	img2, err := GetImage(dst)
-	if err != nil {
-		return false, err
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			total += (float64(r+g+b) - mean) * (float64(r+g+b) - mean)
+		}
 	}
 
-	// Icons are compact image representations (image "hashes").
-	icon1 := images4.Icon(img1)
-	icon2 := images4.Icon(img2)
+	total /= 3 * float64(bounds.Max.X*bounds.Max.Y)
+	return math.Sqrt(total)
+}
 
-	return images4.Similar(icon1, icon2), nil
+func calculateCrossCovariance(img1, img2 image.Image, mean1, mean2 float64) float64 {
+	bounds := img1.Bounds()
+	total := 0.0
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r1, g1, b1, _ := img1.At(x, y).RGBA()
+			r2, g2, b2, _ := img2.At(x, y).RGBA()
+			total += (float64(r1+g1+b1) - mean1) * (float64(r2+g2+b2) - mean2)
+		}
+	}
+
+	total /= 3 * float64(bounds.Max.X*bounds.Max.Y)
+	return total
 }
