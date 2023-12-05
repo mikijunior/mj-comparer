@@ -5,26 +5,21 @@ import (
 	"log"
 	"mjcomparer/internal/app/apiserver"
 
-	"github.com/BurntSushi/toml"
-)
-
-var (
-	configPath string
+	"github.com/joho/godotenv"
 )
 
 func init() {
-	flag.StringVar(&configPath, "config-path", "configs/apiserver.toml", "path to server configs")
+	err := godotenv.Load()
+
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 }
 
 func main() {
 	flag.Parse()
 
 	config := apiserver.NewConfig()
-
-	_, err := toml.DecodeFile(configPath, config)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	if err := apiserver.Start(config); err != nil {
 		log.Fatal(err)
