@@ -1,16 +1,19 @@
 package diffimage
 
 import (
-	"bytes"
 	"errors"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"io/ioutil"
 	"math"
 	"mjcomparer/internal/app/response"
 	"net/http"
+
+	"golang.org/x/image/tiff"
+	_ "golang.org/x/image/tiff"
+	"golang.org/x/image/webp"
+	_ "golang.org/x/image/webp"
 )
 
 // CompareImagesByUrls compares two images given their URLs and returns a comparison result.
@@ -57,7 +60,22 @@ func GetImageExt(url string) (string, error) {
 		return "", errors.New("can't load the content of URL")
 	}
 
-	return http.DetectContentType(buff), nil
+	contentType := http.DetectContentType(buff)
+
+	switch contentType {
+	case "image/jpeg":
+		return ".jpeg", nil
+	case "image/png":
+		return ".png", nil
+	case "image/gif":
+		return ".gif", nil
+	case "image/webp":
+		return ".webp", nil
+	case "image/tiff":
+		return ".tiff", nil
+	default:
+		return "", errors.New("unsupported image format")
+	}
 }
 
 // GetImage retrieves an image from a given URL.
@@ -72,24 +90,29 @@ func GetImage(url string) (image.Image, error) {
 		return nil, errors.New("can't load the content of URL: " + url)
 	}
 
-	// Read the entire response body into a buffer
-	bodyBytes, err := ioutil.ReadAll(response.Body)
+	ext, err := GetImageExt(url)
 	if err != nil {
-		return nil, errors.New("error reading the response body: " + err.Error())
+		return nil, err
 	}
 
-	// Create a new reader from the buffer to decode the image
-	imgReader := bytes.NewReader(bodyBytes)
+	var img image.Image
+	switch ext {
+	case ".jpeg", ".jpg", ".png", ".gif":
+		img, _, err = image.Decode(response.Body)
+	case ".webp":
+		img, err = webp.Decode(response.Body)
+	case ".tiff", ".tif":
+		img, err = tiff.Decode(response.Body)
+	default:
+		return nil, errors.New("unsupported image format: " + ext)
+	}
 
-	// Decode the image
-	img, _, err := image.Decode(imgReader)
 	if err != nil {
-		return nil, errors.New("Error decoding image URL \"" + url + "\". Error: " + err.Error())
+		return nil, errors.New("error decoding image URL \"" + url + "\". Error: " + err.Error())
 	}
 
 	return img, nil
 }
-
 
 //Structural Similarity Index
 func calculateSSI(img1, img2 image.Image) float64 {
